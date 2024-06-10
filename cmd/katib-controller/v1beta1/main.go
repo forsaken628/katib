@@ -37,7 +37,6 @@ import (
 
 	configv1beta1 "github.com/kubeflow/katib/pkg/apis/config/v1beta1"
 	apis "github.com/kubeflow/katib/pkg/apis/controller"
-	cert "github.com/kubeflow/katib/pkg/certgenerator/v1beta1"
 	"github.com/kubeflow/katib/pkg/controller.v1beta1"
 	"github.com/kubeflow/katib/pkg/controller.v1beta1/consts"
 	"github.com/kubeflow/katib/pkg/util/v1beta1/katibconfig"
@@ -138,18 +137,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	certsReady := make(chan struct{})
-	if initConfig.CertGeneratorConfig.Enable {
-		if err = cert.AddToManager(mgr, initConfig.CertGeneratorConfig, certsReady); err != nil {
-			log.Error(err, "Failed to set up cert-generator")
-			os.Exit(1)
-		}
-	} else {
-		close(certsReady)
-	}
-
 	log.Info("Setting up webhooks.")
-	if err := webhookv1beta1.AddToManager(mgr, hookServer, certsReady); err != nil {
+	if err := webhookv1beta1.AddToManager(mgr, hookServer, initConfig.CertGeneratorConfig); err != nil {
 		log.Error(err, "Unable to register webhooks to the manager")
 		os.Exit(1)
 	}

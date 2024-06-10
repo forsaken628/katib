@@ -24,11 +24,26 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	configv1beta1 "github.com/kubeflow/katib/pkg/apis/config/v1beta1"
+	cert "github.com/kubeflow/katib/pkg/certgenerator/v1beta1"
 	"github.com/kubeflow/katib/pkg/webhook/v1beta1/experiment"
 	"github.com/kubeflow/katib/pkg/webhook/v1beta1/pod"
 )
 
-func AddToManager(mgr manager.Manager, hookServer webhook.Server, certsReady <-chan struct{}) error {
+func AddToManager(mgr manager.Manager, hookServer webhook.Server, certsCfg configv1beta1.CertGeneratorConfig) error {
+	log := mgr.GetLogger()
+
+	certsReady := make(chan struct{})
+	if certsCfg.Enable {
+		err := cert.AddToManager(mgr, certsCfg, certsReady)
+		if err != nil {
+			log.Error(err, "Failed to set up cert-generator")
+			return err
+		}
+	} else {
+		close(certsReady)
+	}
+
 	decoder := admission.NewDecoder(mgr.GetScheme())
 	experimentValidator := experiment.NewExperimentValidator(mgr.GetClient(), decoder)
 	experimentDefaulter := experiment.NewExperimentDefaulter(mgr.GetClient(), decoder)
