@@ -17,6 +17,7 @@ limitations under the License.
 package webhook
 
 import (
+	"context"
 	"fmt"
 
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -27,11 +28,7 @@ import (
 	"github.com/kubeflow/katib/pkg/webhook/v1beta1/pod"
 )
 
-func AddToManager(mgr manager.Manager, hookServer webhook.Server) error {
-	if err := mgr.Add(hookServer); err != nil {
-		return fmt.Errorf("Add webhook server to the manager failed: %v", err)
-	}
-
+func AddToManager(mgr manager.Manager, hookServer webhook.Server, certsReady <-chan struct{}) error {
 	decoder := admission.NewDecoder(mgr.GetScheme())
 	experimentValidator := experiment.NewExperimentValidator(mgr.GetClient(), decoder)
 	experimentDefaulter := experiment.NewExperimentDefaulter(mgr.GetClient(), decoder)
@@ -40,5 +37,17 @@ func AddToManager(mgr manager.Manager, hookServer webhook.Server) error {
 	hookServer.Register("/validate-experiment", &webhook.Admission{Handler: experimentValidator})
 	hookServer.Register("/mutate-experiment", &webhook.Admission{Handler: experimentDefaulter})
 	hookServer.Register("/mutate-pod", &webhook.Admission{Handler: sidecarInjector})
+
+	err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-certsReady:
+			return hookServer.Start(ctx)
+		}
+	}))
+	if err != nil {
+		return fmt.Errorf("add webhook server to the manager failed: %v", err)
+	}
 	return nil
 }

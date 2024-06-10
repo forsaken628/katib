@@ -131,20 +131,27 @@ func main() {
 		CertDir: consts.CertDir,
 	})
 
-	ctx := signals.SetupSignalHandler()
+	// Setup all Controllers
+	log.Info("Setting up controller.")
+	if err := controller.AddToManager(mgr); err != nil {
+		log.Error(err, "Unable to register controllers to the manager")
+		os.Exit(1)
+	}
+
 	certsReady := make(chan struct{})
-	defer close(certsReady)
-
-	// The setupControllers will register controllers to the manager
-	// after generated certs for the admission webhooks.
-	go setupControllers(mgr, certsReady, hookServer)
-
 	if initConfig.CertGeneratorConfig.Enable {
 		if err = cert.AddToManager(mgr, initConfig.CertGeneratorConfig, certsReady); err != nil {
 			log.Error(err, "Failed to set up cert-generator")
+			os.Exit(1)
 		}
 	} else {
-		certsReady <- struct{}{}
+		close(certsReady)
+	}
+
+	log.Info("Setting up webhooks.")
+	if err := webhookv1beta1.AddToManager(mgr, hookServer, certsReady); err != nil {
+		log.Error(err, "Unable to register webhooks to the manager")
+		os.Exit(1)
 	}
 
 	log.Info("Setting up health checker.")
@@ -159,27 +166,9 @@ func main() {
 
 	// Start the Cmd
 	log.Info("Starting the manager.")
+	ctx := signals.SetupSignalHandler()
 	if err = mgr.Start(ctx); err != nil {
 		log.Error(err, "Unable to run the manager")
-		os.Exit(1)
-	}
-}
-
-func setupControllers(mgr manager.Manager, certsReady chan struct{}, hookServer webhook.Server) {
-	// The certsReady blocks to register controllers until generated certs.
-	<-certsReady
-	log.Info("Certs ready")
-
-	// Setup all Controllers
-	log.Info("Setting up controller.")
-	if err := controller.AddToManager(mgr); err != nil {
-		log.Error(err, "Unable to register controllers to the manager")
-		os.Exit(1)
-	}
-
-	log.Info("Setting up webhooks.")
-	if err := webhookv1beta1.AddToManager(mgr, hookServer); err != nil {
-		log.Error(err, "Unable to register webhooks to the manager")
 		os.Exit(1)
 	}
 }
