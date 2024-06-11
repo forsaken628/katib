@@ -32,6 +32,7 @@ const (
 	AlgorithmTPE    = "tpe"
 	AlgorithmRandom = "random"
 	AlgorithmSobol  = "sobol"
+	AlgorithmASAH   = "asah"
 
 	defaultStudyName = "Katib"
 )
@@ -46,7 +47,7 @@ func NewSuggestionService() *SuggestionService {
 
 type SuggestionService struct {
 	mu           sync.RWMutex
-	searchSpace  map[string]interface{}
+	searchSpace  map[string]any
 	study        *goptuna.Study
 	trialMapping map[string]int // Katib trial name -> Goptuna trial id
 }
@@ -97,8 +98,7 @@ func (s *SuggestionService) syncTrials(ktrials map[string]goptuna.FrozenTrial) (
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for katibTrialName := range ktrials {
-		ktrial := ktrials[katibTrialName]
+	for katibTrialName, ktrial := range ktrials {
 		gtrialID, found := s.trialMapping[katibTrialName]
 		if !found {
 			// In the CMA-ES algorithm, the parameters of Multivariate Normal Distribution MUST be updated by the
