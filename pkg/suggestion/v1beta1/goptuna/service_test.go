@@ -152,6 +152,37 @@ func TestSuggestionService_GetSuggestions(t *testing.T) {
 				CurrentRequestNumber: 2,
 			},
 		},
+		{
+			name: "ASHA request",
+			req: &api_v1_beta1.GetSuggestionsRequest{
+				Experiment: &api_v1_beta1.Experiment{
+					Name: "test",
+					Spec: &api_v1_beta1.ExperimentSpec{
+						Algorithm: &api_v1_beta1.AlgorithmSpec{
+							AlgorithmName: "asha",
+							AlgorithmSettings: []*api_v1_beta1.AlgorithmSetting{
+								{
+									Name:  "min_resource",
+									Value: "1",
+								},
+								{
+									Name:  "reduction_factor",
+									Value: "4",
+								},
+							},
+						},
+						Objective: &api_v1_beta1.ObjectiveSpec{
+							Type:                  api_v1_beta1.ObjectiveType_MINIMIZE,
+							Goal:                  0.1,
+							ObjectiveMetricName:   "metric-1",
+							AdditionalMetricNames: nil,
+						},
+						ParameterSpecs: parameterSpecs,
+					},
+				},
+				CurrentRequestNumber: 2,
+			},
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &suggestion_goptuna_v1beta1.SuggestionService{}
