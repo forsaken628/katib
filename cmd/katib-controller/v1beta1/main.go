@@ -37,7 +37,6 @@ import (
 
 	configv1beta1 "github.com/kubeflow/katib/pkg/apis/config/v1beta1"
 	apis "github.com/kubeflow/katib/pkg/apis/controller"
-	cert "github.com/kubeflow/katib/pkg/certgenerator/v1beta1"
 	"github.com/kubeflow/katib/pkg/controller.v1beta1"
 	"github.com/kubeflow/katib/pkg/controller.v1beta1/consts"
 	"github.com/kubeflow/katib/pkg/util/v1beta1/katibconfig"
@@ -131,20 +130,17 @@ func main() {
 		CertDir: consts.CertDir,
 	})
 
-	ctx := signals.SetupSignalHandler()
-	certsReady := make(chan struct{})
-	defer close(certsReady)
+	// Setup all Controllers
+	log.Info("Setting up controller.")
+	if err := controller.AddToManager(mgr); err != nil {
+		log.Error(err, "Unable to register controllers to the manager")
+		os.Exit(1)
+	}
 
-	// The setupControllers will register controllers to the manager
-	// after generated certs for the admission webhooks.
-	go setupControllers(mgr, certsReady, hookServer)
-
-	if initConfig.CertGeneratorConfig.Enable {
-		if err = cert.AddToManager(mgr, initConfig.CertGeneratorConfig, certsReady); err != nil {
-			log.Error(err, "Failed to set up cert-generator")
-		}
-	} else {
-		certsReady <- struct{}{}
+	log.Info("Setting up webhooks.")
+	if err := webhookv1beta1.AddToManager(mgr, hookServer, initConfig.CertGeneratorConfig); err != nil {
+		log.Error(err, "Unable to register webhooks to the manager")
+		os.Exit(1)
 	}
 
 	log.Info("Setting up health checker.")
@@ -159,27 +155,9 @@ func main() {
 
 	// Start the Cmd
 	log.Info("Starting the manager.")
+	ctx := signals.SetupSignalHandler()
 	if err = mgr.Start(ctx); err != nil {
 		log.Error(err, "Unable to run the manager")
-		os.Exit(1)
-	}
-}
-
-func setupControllers(mgr manager.Manager, certsReady chan struct{}, hookServer webhook.Server) {
-	// The certsReady blocks to register controllers until generated certs.
-	<-certsReady
-	log.Info("Certs ready")
-
-	// Setup all Controllers
-	log.Info("Setting up controller.")
-	if err := controller.AddToManager(mgr); err != nil {
-		log.Error(err, "Unable to register controllers to the manager")
-		os.Exit(1)
-	}
-
-	log.Info("Setting up webhooks.")
-	if err := webhookv1beta1.AddToManager(mgr, hookServer); err != nil {
-		log.Error(err, "Unable to register webhooks to the manager")
 		os.Exit(1)
 	}
 }

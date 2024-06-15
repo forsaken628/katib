@@ -17,19 +17,31 @@ limitations under the License.
 package webhook
 
 import (
+	"context"
 	"fmt"
 
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	configv1beta1 "github.com/kubeflow/katib/pkg/apis/config/v1beta1"
+	cert "github.com/kubeflow/katib/pkg/certgenerator/v1beta1"
 	"github.com/kubeflow/katib/pkg/webhook/v1beta1/experiment"
 	"github.com/kubeflow/katib/pkg/webhook/v1beta1/pod"
 )
 
-func AddToManager(mgr manager.Manager, hookServer webhook.Server) error {
-	if err := mgr.Add(hookServer); err != nil {
-		return fmt.Errorf("Add webhook server to the manager failed: %v", err)
+func AddToManager(mgr manager.Manager, hookServer webhook.Server, certsCfg configv1beta1.CertGeneratorConfig) error {
+	log := mgr.GetLogger()
+
+	certsReady := make(chan struct{})
+	if certsCfg.Enable {
+		err := cert.AddToManager(mgr, certsCfg, certsReady)
+		if err != nil {
+			log.Error(err, "Failed to set up cert-generator")
+			return err
+		}
+	} else {
+		close(certsReady)
 	}
 
 	decoder := admission.NewDecoder(mgr.GetScheme())
@@ -40,5 +52,17 @@ func AddToManager(mgr manager.Manager, hookServer webhook.Server) error {
 	hookServer.Register("/validate-experiment", &webhook.Admission{Handler: experimentValidator})
 	hookServer.Register("/mutate-experiment", &webhook.Admission{Handler: experimentDefaulter})
 	hookServer.Register("/mutate-pod", &webhook.Admission{Handler: sidecarInjector})
+
+	err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-certsReady:
+			return hookServer.Start(ctx)
+		}
+	}))
+	if err != nil {
+		return fmt.Errorf("add webhook server to the manager failed: %v", err)
+	}
 	return nil
 }
