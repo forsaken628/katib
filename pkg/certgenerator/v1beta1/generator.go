@@ -18,7 +18,6 @@ package certgenerator
 
 import (
 	"fmt"
-	"net/http"
 
 	cert "github.com/open-policy-agent/cert-controller/pkg/rotator"
 	"k8s.io/apimachinery/pkg/types"
@@ -36,17 +35,6 @@ const Webhook = "katib.kubeflow.org"
 
 // AddToManager adds the cert-generator to the manager.
 func AddToManager(mgr manager.Manager, cfg configv1beta1.CertGeneratorConfig, certsReady chan struct{}) error {
-	err := mgr.AddReadyzCheck("cert", func(_ *http.Request) error {
-		select {
-		case <-certsReady:
-			return nil
-		default:
-			return fmt.Errorf("cert not ready")
-		}
-	})
-	if err != nil {
-		return err
-	}
 	return cert.AddRotator(mgr, &cert.CertRotator{
 		SecretKey: types.NamespacedName{
 			Namespace: consts.DefaultKatibNamespace,

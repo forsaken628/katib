@@ -144,11 +144,7 @@ func main() {
 	}
 
 	log.Info("Setting up health checker.")
-	if err := mgr.AddReadyzCheck("readyz", hookServer.StartedChecker()); err != nil {
-		log.Error(err, "Unable to add readyz endpoint to the manager")
-		os.Exit(1)
-	}
-	if err = mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+	if err = mgr.AddHealthzCheck("ping", healthz.Ping); err != nil {
 		log.Error(err, "Add webhook server health checker to the manager failed")
 		os.Exit(1)
 	}

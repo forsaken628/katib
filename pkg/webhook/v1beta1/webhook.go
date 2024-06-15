@@ -19,6 +19,7 @@ package webhook
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -35,7 +36,18 @@ func AddToManager(mgr manager.Manager, hookServer webhook.Server, certsCfg confi
 
 	certsReady := make(chan struct{})
 	if certsCfg.Enable {
-		err := cert.AddToManager(mgr, certsCfg, certsReady)
+		err := mgr.AddReadyzCheck("cert", func(_ *http.Request) error {
+			select {
+			case <-certsReady:
+				return nil
+			default:
+				return fmt.Errorf("cert not ready")
+			}
+		})
+		if err != nil {
+			return err
+		}
+		err = cert.AddToManager(mgr, certsCfg, certsReady)
 		if err != nil {
 			log.Error(err, "Failed to set up cert-generator")
 			return err
@@ -52,6 +64,11 @@ func AddToManager(mgr manager.Manager, hookServer webhook.Server, certsCfg confi
 	hookServer.Register("/validate-experiment", &webhook.Admission{Handler: experimentValidator})
 	hookServer.Register("/mutate-experiment", &webhook.Admission{Handler: experimentDefaulter})
 	hookServer.Register("/mutate-pod", &webhook.Admission{Handler: sidecarInjector})
+
+	if err := mgr.AddReadyzCheck("webhook", hookServer.StartedChecker()); err != nil {
+		log.Error(err, "Unable to add readyz endpoint to the manager")
+		return err
+	}
 
 	err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		select {
