@@ -45,6 +45,7 @@ func AddToManager(mgr manager.Manager, hookServer webhook.Server, certsCfg confi
 			}
 		})
 		if err != nil {
+			log.Error(err, "Unable to add readyz check cert")
 			return err
 		}
 		err = cert.AddToManager(mgr, certsCfg, certsReady)
@@ -66,20 +67,32 @@ func AddToManager(mgr manager.Manager, hookServer webhook.Server, certsCfg confi
 	hookServer.Register("/mutate-pod", &webhook.Admission{Handler: sidecarInjector})
 
 	if err := mgr.AddReadyzCheck("webhook", hookServer.StartedChecker()); err != nil {
-		log.Error(err, "Unable to add readyz endpoint to the manager")
+		log.Error(err, "Unable to add readyz check webhook")
 		return err
 	}
 
-	err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-certsReady:
-			return hookServer.Start(ctx)
-		}
-	}))
+	err := mgr.Add(wrapServer{
+		Server: hookServer,
+		ready:  certsReady,
+	})
 	if err != nil {
 		return fmt.Errorf("add webhook server to the manager failed: %v", err)
 	}
 	return nil
+}
+
+var _ webhook.Server = wrapServer{}
+
+type wrapServer struct {
+	webhook.Server
+	ready <-chan struct{}
+}
+
+func (s wrapServer) Start(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.ready:
+		return s.Server.Start(ctx)
+	}
 }
