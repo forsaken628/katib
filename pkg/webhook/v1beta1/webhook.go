@@ -17,44 +17,19 @@ limitations under the License.
 package webhook
 
 import (
-	"context"
 	"fmt"
-	"net/http"
 
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	configv1beta1 "github.com/kubeflow/katib/pkg/apis/config/v1beta1"
-	cert "github.com/kubeflow/katib/pkg/certgenerator/v1beta1"
 	"github.com/kubeflow/katib/pkg/webhook/v1beta1/experiment"
 	"github.com/kubeflow/katib/pkg/webhook/v1beta1/pod"
 )
 
-func AddToManager(mgr manager.Manager, hookServer webhook.Server, certsCfg configv1beta1.CertGeneratorConfig) error {
-	log := mgr.GetLogger()
-
-	certsReady := make(chan struct{})
-	if certsCfg.Enable {
-		err := mgr.AddReadyzCheck("cert", func(_ *http.Request) error {
-			select {
-			case <-certsReady:
-				return nil
-			default:
-				return fmt.Errorf("cert not ready")
-			}
-		})
-		if err != nil {
-			log.Error(err, "Unable to add readyz check cert")
-			return err
-		}
-		err = cert.AddToManager(mgr, certsCfg, certsReady)
-		if err != nil {
-			log.Error(err, "Failed to set up cert-generator")
-			return err
-		}
-	} else {
-		close(certsReady)
+func AddToManager(mgr manager.Manager, hookServer webhook.Server) error {
+	if err := mgr.Add(hookServer); err != nil {
+		return fmt.Errorf("Add webhook server to the manager failed: %v", err)
 	}
 
 	decoder := admission.NewDecoder(mgr.GetScheme())
@@ -65,34 +40,5 @@ func AddToManager(mgr manager.Manager, hookServer webhook.Server, certsCfg confi
 	hookServer.Register("/validate-experiment", &webhook.Admission{Handler: experimentValidator})
 	hookServer.Register("/mutate-experiment", &webhook.Admission{Handler: experimentDefaulter})
 	hookServer.Register("/mutate-pod", &webhook.Admission{Handler: sidecarInjector})
-
-	if err := mgr.AddReadyzCheck("webhook", hookServer.StartedChecker()); err != nil {
-		log.Error(err, "Unable to add readyz check webhook")
-		return err
-	}
-
-	err := mgr.Add(wrapServer{
-		Server: hookServer,
-		ready:  certsReady,
-	})
-	if err != nil {
-		return fmt.Errorf("add webhook server to the manager failed: %v", err)
-	}
 	return nil
-}
-
-var _ webhook.Server = wrapServer{}
-
-type wrapServer struct {
-	webhook.Server
-	ready <-chan struct{}
-}
-
-func (s wrapServer) Start(ctx context.Context) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-s.ready:
-		return s.Server.Start(ctx)
-	}
 }
